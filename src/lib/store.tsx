@@ -58,6 +58,7 @@ interface DataContextValue {
   updateCategory: (categoryId: string, patch: CategoryPatch) => Promise<void>;
   deleteCategory: (categoryId: string) => Promise<void>;
   addBudget: (input: AddBudgetInput) => Promise<void>;
+  addBudgets: (inputs: AddBudgetInput[]) => Promise<void>;
   addRecipient: (input: AddRecipientInput) => Promise<void>;
   updateRecipient: (recipientId: string, patch: RecipientPatch) => Promise<void>;
   deleteRecipient: (recipientId: string) => Promise<void>;
@@ -423,6 +424,28 @@ const deleteAccount = React.useCallback(
     [effectiveActiveBookId, refreshBudgets]
   );
 
+  const addBudgets = React.useCallback(
+    async (inputs: AddBudgetInput[]): Promise<void> => {
+      if (!effectiveActiveBookId) {
+        throw new Error("Активна книга не вибрана");
+      }
+      if (inputs.length === 0) return;
+      const { error } = await supabase.from("budgets").insert(
+        inputs.map((input) => ({
+          budget_book_id: effectiveActiveBookId,
+          category_id: input.category_id,
+          amount_limit: input.amount_limit,
+          name: input.name,
+          period_type: input.period_type,
+          start_date: input.start_date,
+        }))
+      );
+      if (error) throw new Error(error.message);
+      await refreshBudgets();
+    },
+    [effectiveActiveBookId, refreshBudgets]
+  );
+
   const addRecipient = React.useCallback(
     async (input: AddRecipientInput): Promise<void> => {
       if (!effectiveActiveBookId) {
@@ -531,6 +554,7 @@ const deleteTag = React.useCallback(
       updateCategory,
       deleteCategory,
       addBudget,
+      addBudgets,
       addRecipient,
       updateRecipient,
       deleteRecipient,
@@ -564,6 +588,7 @@ const deleteTag = React.useCallback(
       updateCategory,
       deleteCategory,
       addBudget,
+      addBudgets,
       addRecipient,
       updateRecipient,
       deleteRecipient,

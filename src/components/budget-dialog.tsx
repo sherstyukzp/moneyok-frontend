@@ -20,16 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { MultiSearchSelect } from "@/components/search-select";
 
 import { useData } from "@/lib/store";
 import { startOfMonth, toISODate } from "@/lib/format";
@@ -39,12 +30,12 @@ import { useLanguage } from "@/lib/i18n";
 import { toast } from "sonner";
 
 export function AddBudgetDialog() {
-  const { addBudget, categories, budgets, activeBookId } = useData();
+  const { addBudgets, categories, budgets, activeBookId } = useData();
   const { text } = useLanguage();
 
   const [open, setOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
-  const [categoryId, setCategoryId] = React.useState("");
+  const [categoryIds, setCategoryIds] = React.useState<string[]>([]);
   const [limit, setLimit] = React.useState("");
   const [name, setName] = React.useState("");
 
@@ -52,44 +43,79 @@ export function AddBudgetDialog() {
     () => leafCategories(categories, activeBookId, "expense"),
     [categories, activeBookId]
   );
-  const budgetedCategoryIds = new Set(budgets.map((b) => b.category_id));
-  const available = expenseCategories.filter((c) => !budgetedCategoryIds.has(c.id));
-  const selectedCategory = expenseCategories.find((c) => c.id === categoryId);
-
+  const budgetedCategoryIds = React.useMemo(
+    () => new Set(budgets.map((b) => b.category_id)),
+    [budgets]
+  );
+  const available = React.useMemo(
+    () => expenseCategories.filter((c) => !budgetedCategoryIds.has(c.id)),
+    [expenseCategories, budgetedCategoryIds]
+  );
   const parentName = React.useCallback(
     (parentId: string | null) =>
       categories.find((c) => c.id === parentId)?.name ?? "",
     [categories]
   );
-  const parentGroups = React.useMemo(() => {
-    const groups = new Map<string, typeof available>();
-    for (const c of available) {
-      const pid = c.parent_id ?? "";
-      const list = groups.get(pid) ?? [];
-      list.push(c);
-      groups.set(pid, list);
-    }
-    return Array.from(groups.entries());
-  }, [available]);
+  const selectedCategories = React.useMemo(
+    () => available.filter((c) => categoryIds.includes(c.id)),
+    [available, categoryIds]
+  );
+  const categoryOptions = React.useMemo(
+    () =>
+      available.map((c) => {
+        const groupName = parentName(c.parent_id);
+        return {
+          value: c.id,
+          label: (
+            <span className="flex min-w-0 items-center gap-2">
+              <CategorySwatch
+                icon={c.icon}
+                color={c.color}
+                className="size-5 rounded"
+              />
+              <span className="truncate">{c.name}</span>
+              {groupName ? (
+                <span className="truncate text-xs text-muted-foreground">
+                  · {groupName}
+                </span>
+              ) : null}
+            </span>
+          ),
+          searchText: `${c.name} ${groupName}`.toLowerCase(),
+        };
+      }),
+    [available, parentName]
+  );
 
   const limitValue = Number(limit);
   const limitValid = !Number.isNaN(limitValue) && limitValue > 0;
-  const canSave = categoryId.length > 0 && limitValid && !submitting;
+  const canSave = selectedCategories.length > 0 && limitValid && !submitting;
 
   const handleSave = async () => {
     if (!canSave) return;
     setSubmitting(true);
     try {
-      await addBudget({
-        category_id: categoryId,
-        amount_limit: Math.round(limitValue * 100) / 100,
-        name: name.trim() || selectedCategory?.name || text("Untitled", "Без назви"),
-        period_type: "monthly",
-        start_date: toISODate(startOfMonth(new Date())),
-      });
-      toast.success(text("Budget created", "Бюджет створено"));
+      const startDate = toISODate(startOfMonth(new Date()));
+      const amountLimit = Math.round(limitValue * 100) / 100;
+      await addBudgets(
+        selectedCategories.map((category) => ({
+          category_id: category.id,
+          amount_limit: amountLimit,
+          name: name.trim() || category.name || text("Untitled", "Без назви"),
+          period_type: "monthly",
+          start_date: startDate,
+        }))
+      );
+      toast.success(
+        selectedCategories.length === 1
+          ? text("Budget created", "Бюджет створено")
+          : text(
+              `${selectedCategories.length} budgets created`,
+              `Створено бюджетів: ${selectedCategories.length}`
+            )
+      );
       setOpen(false);
-      setCategoryId("");
+      setCategoryIds([]);
       setLimit("");
       setName("");
     } catch (err) {
@@ -123,46 +149,37 @@ export function AddBudgetDialog() {
           <Field>
             <FieldLabel>{text("Category", "Категорія")}</FieldLabel>
             <FieldContent>
-              <Select value={categoryId} onValueChange={(v) => setCategoryId(v)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={text("Select a category", "Оберіть категорію")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {available.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-muted-foreground">
-                      {text(
-                        "All subcategories already have a budget.",
-                        "Усі підкатегорії вже мають бюджет."
-                      )}
-                    </p>
-                  ) : (
-                    parentGroups.map(([parentId, items], index) => (
-                      <React.Fragment key={parentId}>
-                        {index > 0 ? <SelectSeparator /> : null}
-                        <SelectGroup>
-                          <SelectLabel>
-                            {parentName(parentId) || text("No group", "Без групи")}
-                          </SelectLabel>
-                          {items.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              <span className="flex items-center gap-2">
-                                <CategorySwatch
-                                  icon={c.icon}
-                                  color={c.color}
-                                  className="size-5 rounded"
-                                />
-                                {c.name}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </React.Fragment>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              {categoryId.length === 0 && limit.length > 0 ? (
-                <FieldError>{text("Select a category", "Оберіть категорію")}</FieldError>
+              <MultiSearchSelect
+                value={categoryIds}
+                onValueChange={setCategoryIds}
+                options={categoryOptions}
+                placeholder={text("Select categories", "Оберіть категорії")}
+                searchPlaceholder={text("Search categories...", "Пошук категорій…")}
+                emptyText={text(
+                  "All subcategories already have a budget.",
+                  "Усі підкатегорії вже мають бюджет."
+                )}
+                disabled={available.length === 0}
+              />
+              {selectedCategories.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedCategories.map((category) => (
+                    <span
+                      key={category.id}
+                      className="inline-flex min-w-0 items-center gap-1 rounded-md border bg-muted px-2 py-1 text-xs"
+                    >
+                      <CategorySwatch
+                        icon={category.icon}
+                        color={category.color}
+                        className="size-4 rounded"
+                      />
+                      <span className="max-w-32 truncate">{category.name}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {selectedCategories.length === 0 && limit.length > 0 ? (
+                <FieldError>{text("Select at least one category", "Оберіть хоча б одну категорію")}</FieldError>
               ) : null}
             </FieldContent>
           </Field>

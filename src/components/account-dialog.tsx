@@ -420,7 +420,7 @@ export function AccountDialog({
         <DialogTrigger asChild>{trigger ?? defaultTrigger}</DialogTrigger>
       ) : null}
       <DialogContent
-        className="flex max-h-[min(90vh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
+        className="flex max-h-[min(calc(100dvh-2rem),720px)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
         onInteractOutside={(e) => {
           if (dirty && !submitting) {
             e.preventDefault();
@@ -450,7 +450,7 @@ export function AccountDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <div className="flex flex-col gap-5">
             <Field>
               <FieldLabel>{text("Account name", "Назва рахунку")}</FieldLabel>
@@ -790,7 +790,7 @@ export function AccountDialog({
           </div>
         </div>
 
-        <DialogFooter className="border-t bg-muted/50 p-4">
+        <DialogFooter className="shrink-0 border-t bg-muted/50 p-4">
           <Button
             variant="outline"
             onClick={() => handleClose(false)}
@@ -798,7 +798,11 @@ export function AccountDialog({
           >
             {isEdit ? text("Close", "Закрити") : text("Cancel", "Скасувати")}
           </Button>
-          <Button type="button" onClick={onSubmit} disabled={!canSubmit}>
+          <Button
+            type="button"
+            onClick={onSubmit}
+            disabled={!canSubmit}
+          >
             {submitting ? <Loader className="animate-spin" /> : isEdit ? <Pencil /> : <Wallet />}
             {isEdit ? text("Save", "Зберегти") : text("Add account", "Додати рахунок")}
           </Button>

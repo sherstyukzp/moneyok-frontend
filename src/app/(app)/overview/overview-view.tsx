@@ -3,28 +3,27 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowDownRight, ArrowUpRight, Wallet } from "lucide-react";
 import {
-  ArrowUpRight,
-  ArrowDownRight,
-  Wallet,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
-import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
-  Line,
-  LineChart,
+  LabelList,
   XAxis,
+  YAxis,
 } from "recharts";
 
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import {
   Table,
   TableBody,
@@ -34,8 +33,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ChartConfig,
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
@@ -43,7 +52,7 @@ import {
 import { PageHeading } from "@/components/page-heading";
 import { TypeBadge, AmountText } from "@/components/type-badge";
 import { CategorySwatch } from "@/components/category-looks";
-import { PeriodSelector, parsePeriodParam } from "@/components/period-selector";
+import { parsePeriodParam } from "@/components/period-selector";
 import { useData } from "@/lib/store";
 import { useLanguage } from "@/lib/i18n";
 import { computeBudgetSpent } from "@/lib/selectors";
@@ -57,7 +66,59 @@ import {
 } from "@/lib/period";
 import { toISODate } from "@/lib/format";
 
-type NetWorthKey = "income" | "expense";
+const PERIOD_LABELS: Record<PeriodKey, [string, string]> = {
+  "7d": ["Last 7 days", "Останні 7 днів"],
+  "30d": ["Last 30 days", "Останні 30 днів"],
+  "90d": ["Last 90 days", "Останні 90 днів"],
+  year: ["This year", "Цей рік"],
+};
+
+type FlowChartKey = "income" | "expense";
+type FlowChartPoint = {
+  key: string;
+  label: string;
+  tooltipLabel: string;
+  income: number;
+  expense: number;
+};
+
+function flowBucketStart(date: Date, period: PeriodKey) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  if (period === "year") {
+    return new Date(start.getFullYear(), start.getMonth(), 1);
+  }
+  if (period === "90d") {
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1);
+  }
+  return start;
+}
+
+function flowBucketLabel(date: Date, period: PeriodKey, locale: string) {
+  if (period === "year") {
+    return date.toLocaleDateString(locale, { month: "short" });
+  }
+  return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
+}
+
+function flowBucketTooltipLabel(date: Date, period: PeriodKey, locale: string) {
+  if (period === "year") {
+    return date.toLocaleDateString(locale, { month: "long", year: "numeric" });
+  }
+  if (period === "90d") {
+    return date.toLocaleDateString(locale, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+  return date.toLocaleDateString(locale, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export function OverviewView() {
   const {
@@ -93,13 +154,6 @@ export function OverviewView() {
   const now = React.useMemo(() => new Date(), []);
   const rangeStart = React.useMemo(() => periodStart(period, now), [period, now]);
   const rangeEnd = React.useMemo(() => periodEnd(period, now), [period, now]);
-
-  const days = React.useMemo(() => eachDay(rangeStart, rangeEnd), [rangeStart, rangeEnd]);
-  const dailyIndex = React.useMemo(() => {
-    const map = new Map<string, number>();
-    days.forEach((d, i) => map.set(toISODate(d), i));
-    return map;
-  }, [days]);
 
   const money = React.useCallback(
     (amount: number) =>
@@ -139,71 +193,64 @@ export function OverviewView() {
   const periodStats = React.useMemo(() => {
     let income = 0;
     let expense = 0;
-    const incomeByCategory = new Map<string, number>();
-    const expenseByCategory = new Map<string, number>();
-    const uncategorizedIncome = { total: 0, label: text("Uncategorized", "Без категорії") };
-    const uncategorizedExpense = { total: 0, label: text("Uncategorized", "Без категорії") };
     for (const tx of periodTransactions) {
       const amount = convertAmount(tx.amount, tx.currency, currency, exchangeRates);
       if (tx.type === "income") {
         income += amount;
-        const key = tx.category_id ?? "";
-        if (key) {
-          incomeByCategory.set(key, (incomeByCategory.get(key) ?? 0) + amount);
-        } else {
-          uncategorizedIncome.total += amount;
-        }
       } else if (tx.type === "expense") {
         expense += amount;
-        const key = tx.category_id ?? "";
-        if (key) {
-          expenseByCategory.set(key, (expenseByCategory.get(key) ?? 0) + amount);
-        } else {
-          uncategorizedExpense.total += amount;
-        }
       }
     }
-    return {
-      income,
-      expense,
-      incomeByCategory,
-      expenseByCategory,
-      uncategorizedIncome,
-      uncategorizedExpense,
-    };
-  }, [periodTransactions, currency, exchangeRates, text]);
+    return { income, expense };
+  }, [periodTransactions, currency, exchangeRates]);
 
-  const lineChartData = React.useMemo(() => {
-    const incomeTotals = new Array(days.length).fill(0);
-    const expenseTotals = new Array(days.length).fill(0);
+  const flowChartData = React.useMemo<FlowChartPoint[]>(() => {
+    const bucketStarts =
+      period === "year"
+        ? Array.from(
+            { length: rangeEnd.getMonth() + 1 },
+            (_, index) => new Date(rangeStart.getFullYear(), index, 1)
+          )
+        : eachDay(rangeStart, rangeEnd).filter((day, index) => {
+            if (period !== "90d") return true;
+            return index === 0 || day.getDay() === 1;
+          });
+    const totals = new Map<string, FlowChartPoint>();
+    for (const date of bucketStarts) {
+      const key = toISODate(flowBucketStart(date, period));
+      totals.set(key, {
+        key,
+        label: flowBucketLabel(date, period, locale),
+        tooltipLabel: flowBucketTooltipLabel(date, period, locale),
+        income: 0,
+        expense: 0,
+      });
+    }
     for (const tx of periodTransactions) {
       if (tx.type !== "income" && tx.type !== "expense") continue;
-      const idx = dailyIndex.get(tx.transaction_date);
-      if (idx == null) continue;
+      const date = new Date(`${tx.transaction_date}T00:00:00`);
+      const key = toISODate(flowBucketStart(date, period));
+      const bucket = totals.get(key);
+      if (!bucket) continue;
       const amount = convertAmount(tx.amount, tx.currency, currency, exchangeRates);
-      if (tx.type === "income") incomeTotals[idx] += amount;
-      else expenseTotals[idx] += amount;
+      if (tx.type === "income") bucket.income += amount;
+      else bucket.expense += amount;
     }
-    return days.map((d, i) => ({
-      date: toISODate(d),
-      income: incomeTotals[i],
-      expense: expenseTotals[i],
-    }));
-  }, [periodTransactions, days, dailyIndex, currency, exchangeRates]);
-
-  const [activeSeries, setActiveSeries] = React.useState<NetWorthKey>("expense");
+    return Array.from(totals.values());
+  }, [
+    period,
+    periodTransactions,
+    rangeStart,
+    rangeEnd,
+    locale,
+    currency,
+    exchangeRates,
+  ]);
 
   const lineChartConfig = {
     income: { label: text("Income", "Доходи"), color: "var(--chart-1)" },
     expense: { label: text("Expenses", "Витрати"), color: "var(--chart-2)" },
   } satisfies ChartConfig;
-
-  const seriesTotals = React.useMemo(() => {
-    return {
-      income: lineChartData.reduce((sum, point) => sum + point.income, 0),
-      expense: lineChartData.reduce((sum, point) => sum + point.expense, 0),
-    };
-  }, [lineChartData]);
 
   const budgetRows = React.useMemo(() => {
     return budgets
@@ -214,6 +261,70 @@ export function OverviewView() {
       })
       .sort((a, b) => b.spent / b.amount_limit - a.spent / a.amount_limit);
   }, [budgets, transactions, activeBookId, now]);
+
+  const budgetChartData = React.useMemo(
+    () =>
+      budgetRows.slice(0, 6).map((budget) => ({
+        name: budget.name,
+        spent: budget.spent,
+        limit: budget.amount_limit,
+        used:
+          budget.amount_limit > 0
+            ? Math.min(100, Math.round((budget.spent / budget.amount_limit) * 100))
+            : 0,
+        usedLabel:
+          budget.amount_limit > 0
+            ? Math.round((budget.spent / budget.amount_limit) * 100)
+            : 0,
+      })),
+    [budgetRows]
+  );
+  const budgetTotals = React.useMemo(
+    () =>
+      budgetRows.reduce(
+        (totals, budget) => ({
+          spent: totals.spent + budget.spent,
+          limit: totals.limit + budget.amount_limit,
+        }),
+        { spent: 0, limit: 0 }
+      ),
+    [budgetRows]
+  );
+
+  const budgetChartConfig = {
+    used: {
+      label: text("Used", "Використано"),
+      color: "var(--chart-2)",
+    },
+    label: {
+      color: "var(--background)",
+    },
+  } satisfies ChartConfig;
+
+  const [activeFlowChart, setActiveFlowChart] =
+    React.useState<FlowChartKey>("expense");
+
+  const flowChartConfig = {
+    totals: {
+      label: text("Total", "Разом"),
+    },
+    income: {
+      label: text("Income", "Доходи"),
+      color: "var(--chart-1)",
+    },
+    expense: {
+      label: text("Expenses", "Витрати"),
+      color: "var(--chart-2)",
+    },
+  } satisfies ChartConfig;
+
+  const flowChartTotals = React.useMemo(
+    () => ({
+      income: periodStats.income,
+      expense: periodStats.expense,
+    }),
+    [periodStats.income, periodStats.expense]
+  );
 
   const recent = React.useMemo(() => {
     return [...transactions]
@@ -230,184 +341,258 @@ export function OverviewView() {
           `Activity for ${periodLabel(period, locale, now)}`,
           `Операції за ${periodLabel(period, locale, now)}`
         )}
-        actions={
-          <PeriodSelector value={period} onChange={setPeriod} className="self-end" />
-        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">{text("Current balance", "Поточний баланс")}</p>
+          <CardHeader>
+            <CardTitle className="text-base">{text("Current balance", "Поточний баланс")}</CardTitle>
+            <CardDescription>
+              {text("in", "у книзі")} {text(`"${activeBook?.name ?? "..."}"`, `«${activeBook?.name ?? "…"}»`)}
+            </CardDescription>
+            <CardAction>
               <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <Wallet className="size-4" />
+                <Wallet />
               </div>
-            </div>
-            <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold tracking-tight tabular-nums">
               {money(currentBalance)}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {text("in", "у книзі")} {text(`"${activeBook?.name ?? "..."}"`, `«${activeBook?.name ?? "…"}»`)}
-            </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">{text("Income", "Доходи")}</p>
-              <div className="flex size-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
-                <ArrowUpRight className="size-4" />
+          <CardHeader>
+            <CardTitle className="text-base">{text("Income", "Доходи")}</CardTitle>
+            <CardDescription>{periodLabel(period, locale, now)}</CardDescription>
+            <CardAction>
+              <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <ArrowUpRight />
               </div>
-            </div>
-            <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums text-emerald-600 dark:text-emerald-400">
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold tracking-tight tabular-nums">
               {money(periodStats.income)}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {periodLabel(period, locale, now)}
-            </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">{text("Expenses", "Витрати")}</p>
-              <div className="flex size-8 items-center justify-center rounded-md bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-400">
-                <ArrowDownRight className="size-4" />
+          <CardHeader>
+            <CardTitle className="text-base">{text("Expenses", "Витрати")}</CardTitle>
+            <CardDescription>{periodLabel(period, locale, now)}</CardDescription>
+            <CardAction>
+              <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <ArrowDownRight />
               </div>
-            </div>
-            <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold tracking-tight tabular-nums">
               {money(periodStats.expense)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {periodLabel(period, locale, now)}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="py-4 sm:py-0">
-        <CardHeader className="flex flex-col items-stretch border-b p-0! sm:flex-row">
-          <div className="flex flex-1 flex-col justify-center gap-1 px-6 pb-3 sm:pb-0">
+      <Card className="pt-0">
+        <CardHeader className="flex items-center gap-2 border-b py-5 sm:flex-row">
+          <div className="grid flex-1 gap-1">
             <CardTitle>{text("Cash flow dynamics", "Динаміка руху коштів")}</CardTitle>
             <CardDescription>
               {text(
-                `Showing ${periodLabel(period, locale, now)}`,
-                `Період: ${periodLabel(period, locale, now)}`
+                `Income and expenses for ${periodLabel(period, locale, now)}`,
+                `Доходи та витрати за ${periodLabel(period, locale, now)}`
               )}
             </CardDescription>
           </div>
-          <div className="flex">
-            {(["expense", "income"] as const).map((key) => {
-              const series = key as NetWorthKey;
-              const isActive = activeSeries === series;
-              return (
-                <button
-                  key={series}
-                  type="button"
-                  data-active={isActive}
-                  className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-t-0 sm:border-l sm:px-8 sm:py-6"
-                  onClick={() => setActiveSeries(series)}
-                >
-                  <span className="text-xs text-muted-foreground">
-                    {lineChartConfig[series].label}
-                  </span>
-                  <span className="text-lg leading-none font-bold sm:text-3xl">
-                    {money(seriesTotals[series])}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <Select value={period} onValueChange={(value) => setPeriod(value as PeriodKey)}>
+            <SelectTrigger
+              className="w-full rounded-lg sm:ml-auto sm:w-[160px]"
+              aria-label={text("Select period", "Оберіть період")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl">
+              <SelectGroup>
+                {(Object.keys(PERIOD_LABELS) as PeriodKey[]).map((key) => (
+                  <SelectItem key={key} value={key} className="rounded-lg">
+                    {text(...PERIOD_LABELS[key])}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </CardHeader>
-        <CardContent className="px-2 sm:p-6">
+        <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
           <ChartContainer
             config={lineChartConfig}
             className="aspect-auto h-[250px] w-full"
           >
-            <LineChart
-              accessibilityLayer
-              data={lineChartData}
-              margin={{
-                left: 12,
-                right: 12,
-              }}
-            >
+            <AreaChart accessibilityLayer data={flowChartData}>
+              <defs>
+                <linearGradient id="fillIncome" x1="0" y1="0" x2="0" y2="1">
+                  <stop
+                    offset="5%"
+                    stopColor="var(--color-income)"
+                    stopOpacity={0.8}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor="var(--color-income)"
+                    stopOpacity={0.1}
+                  />
+                </linearGradient>
+                <linearGradient id="fillExpense" x1="0" y1="0" x2="0" y2="1">
+                  <stop
+                    offset="5%"
+                    stopColor="var(--color-expense)"
+                    stopOpacity={0.8}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor="var(--color-expense)"
+                    stopOpacity={0.1}
+                  />
+                </linearGradient>
+              </defs>
               <CartesianGrid vertical={false} />
               <XAxis
-                dataKey="date"
+                dataKey="label"
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
                 minTickGap={32}
-                tickFormatter={(value) => {
-                  const date = new Date(`${value}T00:00:00`);
-                  return date.toLocaleDateString(locale, {
-                    month: "short",
-                    day: "numeric",
-                  });
-                }}
               />
               <ChartTooltip
+                cursor={false}
                 content={
                   <ChartTooltipContent
-                    className="w-[150px]"
-                    nameKey={activeSeries}
-                    labelFormatter={(value) => {
-                      return new Date(`${String(value)}T00:00:00`).toLocaleDateString(
-                        locale,
-                        {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        }
+                    labelFormatter={(_value, payload) =>
+                      payload[0]?.payload?.tooltipLabel ?? ""
+                    }
+                    formatter={(value, name, item) => {
+                      const key = String(name) as keyof typeof lineChartConfig;
+                      const numeric = Number(value);
+                      return (
+                        <>
+                          <div
+                            className="size-2.5 shrink-0 rounded-[2px]"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className="text-muted-foreground">
+                            {lineChartConfig[key]?.label ?? key}
+                          </span>
+                          <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
+                            {money(numeric)}
+                          </span>
+                        </>
                       );
                     }}
+                    indicator="dot"
                   />
                 }
               />
-              <Line
-                dataKey={activeSeries}
-                type="monotone"
-                stroke={`var(--color-${activeSeries})`}
-                strokeWidth={2}
-                dot={false}
+              <Area
+                dataKey="expense"
+                type="natural"
+                fill="url(#fillExpense)"
+                stroke="var(--color-expense)"
+                stackId="cash-flow"
               />
-            </LineChart>
+              <Area
+                dataKey="income"
+                type="natural"
+                fill="url(#fillIncome)"
+                stroke="var(--color-income)"
+                stackId="cash-flow"
+              />
+              <ChartLegend content={<ChartLegendContent />} />
+            </AreaChart>
           </ChartContainer>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <CategoryBreakdownCard
-          title={text("Total income", "Загальний дохід")}
-          amount={periodStats.income}
-          money={money}
-          totals={periodStats.incomeByCategory}
-          uncategorized={periodStats.uncategorizedIncome}
-          kind="income"
-          categories={categories}
-          emptyLabel={text(
-            "No income recorded for this period.",
-            "За цей період доходів не було."
+      <Card className="py-0">
+        <CardHeader className="flex flex-col items-stretch border-b p-0! sm:flex-row">
+          <div className="flex flex-1 flex-col justify-center gap-1 px-6 pt-4 pb-3 sm:py-0!">
+            <CardTitle>{text("Total income and expenses", "Загальний дохід та загальні витрати")}</CardTitle>
+            <CardDescription>
+              {text(
+                `Daily totals for ${periodLabel(period, locale, now)}`,
+                `Денні підсумки за ${periodLabel(period, locale, now)}`
+              )}
+            </CardDescription>
+          </div>
+          <div className="flex">
+            {(["expense", "income"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                data-active={activeFlowChart === key}
+                className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-t-0 sm:border-l sm:px-8 sm:py-6"
+                onClick={() => setActiveFlowChart(key)}
+              >
+                <span className="text-xs text-muted-foreground">
+                  {flowChartConfig[key].label}
+                </span>
+                <span className="text-lg leading-none font-bold sm:text-3xl">
+                  {money(flowChartTotals[key])}
+                </span>
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="px-2 sm:p-6">
+          {flowChartTotals.income === 0 && flowChartTotals.expense === 0 ? (
+            <p className="px-4 py-12 text-center text-sm text-muted-foreground">
+              {text("No income or expenses recorded for this period.", "За цей період доходів або витрат не було.")}
+            </p>
+          ) : (
+            <ChartContainer
+              config={flowChartConfig}
+              className="aspect-auto h-[250px] w-full"
+            >
+              <BarChart
+                accessibilityLayer
+                data={flowChartData}
+                margin={{ left: 12, right: 12 }}
+              >
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  minTickGap={32}
+                />
+                <ChartTooltip
+                  cursor={false}
+                  content={
+                    <ChartTooltipContent
+                      className="w-[150px]"
+                      nameKey="totals"
+                      labelFormatter={(_value, payload) =>
+                        payload[0]?.payload?.tooltipLabel ?? ""
+                      }
+                      formatter={(value) => money(Number(value))}
+                    />
+                  }
+                />
+                <Bar
+                  dataKey={activeFlowChart}
+                  fill={`var(--color-${activeFlowChart})`}
+                  radius={4}
+                  maxBarSize={44}
+                />
+              </BarChart>
+            </ChartContainer>
           )}
-        />
-        <CategoryBreakdownCard
-          title={text("Total expenses", "Загальні витрати")}
-          amount={periodStats.expense}
-          money={money}
-          totals={periodStats.expenseByCategory}
-          uncategorized={periodStats.uncategorizedExpense}
-          kind="expense"
-          categories={categories}
-          emptyLabel={text(
-            "No expenses recorded for this period.",
-            "За цей період витрат не було."
-          )}
-        />
-      </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -418,35 +603,91 @@ export function OverviewView() {
             </Link>
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent>
           {budgetRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="py-12 text-center text-sm text-muted-foreground">
               {text("This book has no budgets yet.", "У цій книзі ще немає бюджетів.")}
             </p>
           ) : (
-            budgetRows.map((b) => {
-              const ratio = b.amount_limit > 0
-                ? Math.min(100, Math.round((b.spent / b.amount_limit) * 100))
-                : 0;
-              const over = b.spent > b.amount_limit;
-              return (
-                <div key={b.id} className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm font-medium">{b.name}</span>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {money(b.spent)}
-                      <span className="text-muted-foreground/60"> / {money(b.amount_limit)}</span>
-                    </span>
-                  </div>
-                  <Progress
-                    value={ratio}
-                    className={over ? "bg-rose-100 dark:bg-rose-950 [&>div]:bg-rose-500" : undefined}
+            <ChartContainer
+              config={budgetChartConfig}
+              className="aspect-auto h-[260px] w-full"
+            >
+              <BarChart
+                accessibilityLayer
+                data={budgetChartData}
+                layout="vertical"
+                margin={{ right: 16 }}
+              >
+                <CartesianGrid horizontal={false} />
+                <YAxis
+                  dataKey="name"
+                  type="category"
+                  tickLine={false}
+                  tickMargin={10}
+                  axisLine={false}
+                  tickFormatter={(value) => String(value).slice(0, 3)}
+                  hide
+                />
+                <XAxis dataKey="used" type="number" domain={[0, 100]} hide />
+                <ChartTooltip
+                  cursor={false}
+                  content={
+                    <ChartTooltipContent
+                      indicator="line"
+                      formatter={(value, name, _item, _index, payload) => {
+                        const key = String(name);
+                        const label = key === "used" ? budgetChartConfig.used.label : key;
+                        const usedLabel =
+                          payload && typeof payload === "object" && "usedLabel" in payload
+                            ? Number(payload.usedLabel)
+                            : Number(value);
+                        return (
+                          <>
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
+                              {usedLabel}%
+                            </span>
+                          </>
+                        );
+                      }}
+                    />
+                  }
+                />
+                <Bar dataKey="used" fill="var(--color-used)" radius={4}>
+                  <LabelList
+                    dataKey="name"
+                    position="insideLeft"
+                    offset={8}
+                    className="fill-(--color-label)"
+                    fontSize={12}
                   />
-                </div>
-              );
-            })
+                  <LabelList
+                    dataKey="usedLabel"
+                    position="right"
+                    offset={8}
+                    className="fill-foreground"
+                    fontSize={12}
+                    formatter={(value) => `${Number(value)}%`}
+                  />
+                </Bar>
+              </BarChart>
+            </ChartContainer>
           )}
         </CardContent>
+        {budgetRows.length > 0 ? (
+          <CardFooter className="flex-col items-start gap-2 text-sm">
+            <div className="flex gap-2 leading-none font-medium">
+              {text("Spent this month", "Витрачено цього місяця")} {money(budgetTotals.spent)}
+            </div>
+            <div className="leading-none text-muted-foreground">
+              {text(
+                `Across ${budgetRows.length} budgets of ${money(budgetTotals.limit)}`,
+                `По ${budgetRows.length} бюджетах із ${money(budgetTotals.limit)}`
+              )}
+            </div>
+          </CardFooter>
+        ) : null}
       </Card>
 
       <Card>
@@ -515,120 +756,5 @@ export function OverviewView() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function CategoryBreakdownCard({
-  title,
-  amount,
-  money,
-  totals,
-  uncategorized,
-  kind,
-  categories,
-  emptyLabel,
-}: {
-  title: string;
-  amount: number;
-  money: (n: number) => string;
-  totals: Map<string, number>;
-  uncategorized: { total: number; label: string };
-  kind: "income" | "expense";
-  categories: { id: string; name: string; icon: string | null; color: string | null }[];
-  emptyLabel: string;
-}) {
-  const rows = React.useMemo(() => {
-    const list = Array.from(totals.entries()).map(([id, value]) => {
-      const cat = categories.find((c) => c.id === id);
-      return {
-        id,
-        name: cat?.name ?? "—",
-        icon: cat?.icon ?? null,
-        color: cat?.color ?? null,
-        value,
-      };
-    });
-    list.sort((a, b) => b.value - a.value);
-    return list;
-  }, [totals, categories]);
-
-  const hasAny = rows.length > 0 || uncategorized.total > 0;
-  const max = rows[0]?.value ?? 1;
-  const Icon = kind === "income" ? TrendingUp : TrendingDown;
-  const iconWrap =
-    kind === "income"
-      ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
-      : "bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-400";
-  const barWrap =
-    kind === "income"
-      ? "[&>div]:bg-emerald-500"
-      : "[&>div]:bg-rose-500";
-  const trackWrap =
-    kind === "income" ? "bg-emerald-100 dark:bg-emerald-950" : "bg-rose-100 dark:bg-rose-950";
-  const amountColor =
-    kind === "income"
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-foreground";
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-        <div className={`flex size-8 items-center justify-center rounded-md ${iconWrap}`}>
-          <Icon className="size-4" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className={`text-3xl font-semibold tracking-tight tabular-nums ${amountColor}`}>
-          {money(amount)}
-        </p>
-        {!hasAny ? (
-          <p className="mt-4 text-sm text-muted-foreground">{emptyLabel}</p>
-        ) : (
-          <ul className="mt-4 flex flex-col gap-3">
-            {rows.map((row) => {
-              const ratio = max > 0 ? Math.max(2, Math.round((row.value / max) * 100)) : 0;
-              return (
-                <li key={row.id} className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <CategorySwatch
-                        icon={row.icon}
-                        color={row.color}
-                        className="size-5 rounded"
-                      />
-                      <span className="truncate">{row.name}</span>
-                    </span>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {money(row.value)}
-                    </span>
-                  </div>
-                  <Progress value={ratio} className={`${trackWrap} ${barWrap}`} />
-                </li>
-              );
-            })}
-            {uncategorized.total > 0 ? (
-              <li className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
-                    <span className="flex size-5 items-center justify-center rounded bg-muted text-muted-foreground">
-                      ?
-                    </span>
-                    <span className="truncate">{uncategorized.label}</span>
-                  </span>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {money(uncategorized.total)}
-                  </span>
-                </div>
-                <Progress
-                  value={max > 0 ? Math.max(2, Math.round((uncategorized.total / max) * 100)) : 0}
-                  className={`${trackWrap} ${barWrap}`}
-                />
-              </li>
-            ) : null}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
   );
 }

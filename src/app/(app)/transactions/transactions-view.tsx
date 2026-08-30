@@ -125,11 +125,17 @@ export function TransactionsView() {
     const q = query.trim().toLowerCase();
     return bookTransactions.filter((tx) => {
       if (type !== "all" && tx.type !== type) return false;
-      if (accountId !== "all" && tx.account_id !== accountId) return false;
+      if (
+        accountId !== "all" &&
+        tx.account_id !== accountId &&
+        tx.transfer_account_id !== accountId
+      ) {
+        return false;
+      }
       if (categoryId !== "all" && tx.category_id !== categoryId) return false;
       if (q) {
         const haystack =
-          `${tx.note ?? ""} ${categoryName(tx.category_id)} ${accountName(tx.account_id)}`.toLowerCase();
+          `${tx.note ?? ""} ${categoryName(tx.category_id)} ${accountName(tx.account_id)} ${accountName(tx.transfer_account_id ?? "")}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;

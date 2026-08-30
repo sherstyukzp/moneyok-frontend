@@ -11,6 +11,15 @@ import {
   FieldError,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { SearchSelect } from "@/components/search-select";
 
 import { useData } from "@/lib/store";
@@ -111,20 +120,74 @@ export function TransactionDialog({
       categories.find((c) => c.id === parentId)?.name ?? "",
     [categories]
   );
-  const parentGroups = React.useMemo(() => {
-    const groups = new Map<string, typeof bookCategories>();
-    for (const c of bookCategories) {
-      const pid = c.parent_id ?? "";
-      const list = groups.get(pid) ?? [];
-      list.push(c);
-      groups.set(pid, list);
-    }
-    return Array.from(groups.entries());
-  }, [bookCategories]);
 
   const amountValue = Number(amount);
   const amountValid = !Number.isNaN(amountValue) && amountValue > 0;
   const targetAccounts = bookAccounts.filter((a) => a.id !== accountId);
+  const transactionTypeOptions = React.useMemo(
+    () => [
+      {
+        value: "expense",
+        label: text("Expense", "Витрата"),
+        searchText: "expense витрата",
+      },
+      {
+        value: "income",
+        label: text("Income", "Дохід"),
+        searchText: "income дохід",
+      },
+      {
+        value: "transfer",
+        label: text("Transfer", "Переказ"),
+        searchText: "transfer переказ",
+      },
+    ],
+    [text]
+  );
+  const accountOptions = React.useMemo(
+    () =>
+      bookAccounts.map((a) => ({
+        value: a.id,
+        label: a.name,
+        searchText: `${a.name} ${a.currency} ${a.type}`.toLowerCase(),
+      })),
+    [bookAccounts]
+  );
+  const targetAccountOptions = React.useMemo(
+    () =>
+      targetAccounts.map((a) => ({
+        value: a.id,
+        label: a.name,
+        searchText: `${a.name} ${a.currency} ${a.type}`.toLowerCase(),
+      })),
+    [targetAccounts]
+  );
+  const categoryOptions = React.useMemo(
+    () =>
+      bookCategories.map((c) => {
+        const groupName = parentName(c.parent_id);
+        return {
+          value: c.id,
+          label: (
+            <span className="flex min-w-0 items-center gap-2">
+              <CategorySwatch
+                icon={c.icon}
+                color={c.color}
+                className="size-5 rounded"
+              />
+              <span className="truncate">{c.name}</span>
+              {groupName ? (
+                <span className="truncate text-xs text-muted-foreground">
+                  · {groupName}
+                </span>
+              ) : null}
+            </span>
+          ),
+          searchText: `${c.name} ${groupName}`.toLowerCase(),
+        };
+      }),
+    [bookCategories, parentName]
+  );
   const canSave =
     amountValid &&
     date.length > 0 &&
@@ -225,19 +288,12 @@ export function TransactionDialog({
           <Field>
             <FieldLabel>{text("Type", "Тип")}</FieldLabel>
             <FieldContent>
-              <Select
+              <SearchSelect
                 value={type}
                 onValueChange={(v) => setType(v as TransactionType)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="expense">{text("Expense", "Витрата")}</SelectItem>
-                  <SelectItem value="income">{text("Income", "Дохід")}</SelectItem>
-                  <SelectItem value="transfer">{text("Transfer", "Переказ")}</SelectItem>
-                </SelectContent>
-              </Select>
+                options={transactionTypeOptions}
+                searchPlaceholder={text("Search transaction type...", "Пошук типу транзакції…")}
+              />
             </FieldContent>
           </Field>
 
@@ -293,18 +349,14 @@ export function TransactionDialog({
                   : text("Account", "Рахунок")}
               </FieldLabel>
               <FieldContent>
-                <Select value={accountId} onValueChange={(v) => setAccountId(v)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={text("Select an account", "Оберіть рахунок")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {bookAccounts.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={accountId}
+                  onValueChange={(v) => setAccountId(v)}
+                  options={accountOptions}
+                  placeholder={text("Select an account", "Оберіть рахунок")}
+                  searchPlaceholder={text("Search accounts...", "Пошук рахунків…")}
+                  emptyText={text("No accounts found", "Рахунків не знайдено")}
+                />
               </FieldContent>
             </Field>
 
@@ -312,18 +364,14 @@ export function TransactionDialog({
               <Field>
                 <FieldLabel>{text("To account", "На рахунок")}</FieldLabel>
                 <FieldContent>
-                  <Select value={toAccountId} onValueChange={(v) => setToAccountId(v)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={text("Select an account", "Оберіть рахунок")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {targetAccounts.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchSelect
+                    value={toAccountId}
+                    onValueChange={(v) => setToAccountId(v)}
+                    options={targetAccountOptions}
+                    placeholder={text("Select an account", "Оберіть рахунок")}
+                    searchPlaceholder={text("Search accounts...", "Пошук рахунків…")}
+                    emptyText={text("No accounts found", "Рахунків не знайдено")}
+                  />
                   {toAccountId === accountId && toAccountId.length > 0 ? (
                     <FieldError>
                       {text("Accounts must be different", "Рахунки мають відрізнятися")}
@@ -335,44 +383,17 @@ export function TransactionDialog({
               <Field>
                 <FieldLabel>{text("Category", "Категорія")}</FieldLabel>
                 <FieldContent>
-                  <Select value={categoryId} onValueChange={(v) => setCategoryId(v)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={text("Select a category", "Оберіть категорію")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {bookCategories.length === 0 ? (
-                        <p className="px-2 py-3 text-sm text-muted-foreground">
-                          {text(
-                            "There are no subcategories for this type.",
-                            "Немає підкатегорій для цього типу."
-                          )}
-                        </p>
-                      ) : (
-                        parentGroups.map(([parentId, items], index) => (
-                          <React.Fragment key={parentId}>
-                            {index > 0 ? <SelectSeparator /> : null}
-                            <SelectGroup>
-                              <SelectLabel>
-                                {parentName(parentId) || text("No group", "Без групи")}
-                              </SelectLabel>
-                              {items.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  <span className="flex items-center gap-2">
-                                    <CategorySwatch
-                                      icon={c.icon}
-                                      color={c.color}
-                                      className="size-5 rounded"
-                                    />
-                                    {c.name}
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </React.Fragment>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <SearchSelect
+                    value={categoryId}
+                    onValueChange={(v) => setCategoryId(v)}
+                    options={categoryOptions}
+                    placeholder={text("Select a category", "Оберіть категорію")}
+                    searchPlaceholder={text("Search categories...", "Пошук категорій…")}
+                    emptyText={text(
+                      "There are no subcategories for this type.",
+                      "Немає підкатегорій для цього типу."
+                    )}
+                  />
                   {categoryId.length === 0 && amountValid ? (
                     <FieldError>{text("Select a category", "Оберіть категорію")}</FieldError>
                   ) : null}
