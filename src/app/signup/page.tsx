@@ -10,9 +10,12 @@ import { Field, FieldContent, FieldError, FieldLabel } from "@/components/ui/fie
 import { AuthShell } from "@/components/auth-shell";
 import { ShellLoading } from "@/components/shell-loading";
 import { useAuth } from "@/lib/auth";
+import { useLanguage } from "@/lib/i18n";
+import { toast } from "sonner";
 
 export default function SignupPage() {
   const { session, loading, signUp } = useAuth();
+  const { text } = useLanguage();
   const router = useRouter();
 
   const [fullName, setFullName] = React.useState("");
@@ -43,34 +46,43 @@ export default function SignupPage() {
     setPending(false);
     if (err) {
       setError(err);
+      toast.error(err);
       return;
     }
     if (signedIn) {
+      toast.success(text("Account created", "Акаунт створено"));
       router.replace("/overview");
     } else {
+      toast.success(
+        text("Check your email to confirm", "Перевірте пошту для підтвердження")
+      );
       setCheckEmail(true);
     }
   };
 
-  if (loading) return <ShellLoading label="Перевірка сесії…" />;
+  if (loading) return <ShellLoading label={text("Checking session...", "Перевірка сесії…")} />;
 
   if (checkEmail) {
     return (
       <AuthShell
-        title="Перевірте пошту"
-        subtitle="Майже готово!"
+        title={text("Check your email", "Перевірте пошту")}
+        subtitle={text("Almost there!", "Майже готово!")}
         footer={
           <>
-            Вже маєте акаунт?{" "}
+            {text("Already have an account?", "Вже маєте акаунт?")}{" "}
             <Link href="/login" className="font-medium text-foreground underline underline-offset-4">
-              Увійти
+              {text("Log in", "Увійти")}
             </Link>
           </>
         }
       >
         <p className="text-sm text-muted-foreground">
-          Ми надіслали лист для підтвердження на <span className="font-medium text-foreground">{email}</span>.
-          Підтвердіть реєстрацію та поверніться до входу.
+          {text("We sent a confirmation email to", "Ми надіслали лист для підтвердження на")} {" "}
+          <span className="font-medium text-foreground">{email}</span>. {" "}
+          {text(
+            "Confirm your registration and return to the login page.",
+            "Підтвердіть реєстрацію та поверніться до входу."
+          )}
         </p>
       </AuthShell>
     );
@@ -78,31 +90,31 @@ export default function SignupPage() {
 
   return (
     <AuthShell
-      title="Реєстрація"
-      subtitle="Створіть акаунт, щоб почати бюджетування"
+      title={text("Sign up", "Реєстрація")}
+      subtitle={text("Create an account to start budgeting", "Створіть акаунт, щоб почати бюджетування")}
       footer={
         <>
-          Вже маєте акаунт?{" "}
+          {text("Already have an account?", "Вже маєте акаунт?")}{" "}
           <Link href="/login" className="font-medium text-foreground underline underline-offset-4">
-            Увійти
+            {text("Log in", "Увійти")}
           </Link>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <Field>
-          <FieldLabel>Імʼя</FieldLabel>
+          <FieldLabel>{text("Name", "Імʼя")}</FieldLabel>
           <FieldContent>
             <Input
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="Як до вас звертатися"
+              placeholder={text("What should we call you?", "Як до вас звертатися")}
               autoFocus
             />
           </FieldContent>
         </Field>
         <Field>
-          <FieldLabel>Email</FieldLabel>
+          <FieldLabel>{text("Email", "Електронна пошта")}</FieldLabel>
           <FieldContent>
             <Input
               type="email"
@@ -115,28 +127,33 @@ export default function SignupPage() {
           </FieldContent>
         </Field>
         <Field>
-          <FieldLabel>Пароль</FieldLabel>
+          <FieldLabel>{text("Password", "Пароль")}</FieldLabel>
           <FieldContent>
             <Input
               type="password"
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Щонайменше 6 символів"
+              placeholder={text("At least 6 characters", "Щонайменше 6 символів")}
               required
             />
             {password.length > 0 && !passwordValid ? (
-              <FieldError>Пароль має містити щонайменше 6 символів</FieldError>
+              <FieldError>
+                {text("Password must be at least 6 characters", "Пароль має містити щонайменше 6 символів")}
+              </FieldError>
             ) : null}
           </FieldContent>
         </Field>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <Button type="submit" disabled={pending || !passwordValid}>
-          {pending ? "Створення…" : "Створити акаунт"}
+          {pending ? text("Creating...", "Створення…") : text("Create account", "Створити акаунт")}
         </Button>
       </form>
       <p className="text-center text-xs text-muted-foreground">
-        Після реєстрації автоматично створюється книга «Personal».
+        {text(
+          'A "Personal" book is created automatically after registration.',
+          "Після реєстрації автоматично створюється книга «Personal»."
+        )}
       </p>
     </AuthShell>
   );

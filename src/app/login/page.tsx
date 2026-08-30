@@ -11,12 +11,15 @@ import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { AuthShell } from "@/components/auth-shell";
 import { ShellLoading } from "@/components/shell-loading";
 import { useAuth } from "@/lib/auth";
+import { useLanguage } from "@/lib/i18n";
+import { toast } from "sonner";
 
 const DEMO_EMAIL = "demo@moneyok.local";
 const DEMO_PASSWORD = "demo-password";
 
 export default function LoginPage() {
   const { session, loading, signIn } = useAuth();
+  const { text } = useLanguage();
   const router = useRouter();
 
   const [email, setEmail] = React.useState("");
@@ -39,8 +42,10 @@ export default function LoginPage() {
     setSubmitting(false);
     if (err) {
       setError(err);
+      toast.error(err);
       return;
     }
+    toast.success(text("Signed in", "Вхід виконано"));
     router.replace("/overview");
   };
 
@@ -50,27 +55,30 @@ export default function LoginPage() {
     setSubmitting(true);
     const err = await signIn(DEMO_EMAIL, DEMO_PASSWORD);
     setSubmitting(false);
-    if (err) setError(err);
+    if (err) {
+      setError(err);
+      toast.error(err);
+    }
   };
 
-  if (loading) return <ShellLoading label="Перевірка сесії…" />;
+  if (loading) return <ShellLoading label={text("Checking session...", "Перевірка сесії…")} />;
 
   return (
     <AuthShell
-      title="Вхід"
-      subtitle="Ваші особисті фінанси в одному місці"
+      title={text("Log in", "Вхід")}
+      subtitle={text("Your personal finances in one place", "Ваші особисті фінанси в одному місці")}
       footer={
         <>
-          Немає акаунта?{" "}
+          {text("Don't have an account?", "Немає акаунта?")}{" "}
           <Link href="/signup" className="font-medium text-foreground underline underline-offset-4">
-            Зареєструватися
+            {text("Sign up", "Зареєструватися")}
           </Link>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <Field>
-          <FieldLabel>Email</FieldLabel>
+          <FieldLabel>{text("Email", "Електронна пошта")}</FieldLabel>
           <FieldContent>
             <Input
               type="email"
@@ -83,7 +91,7 @@ export default function LoginPage() {
           </FieldContent>
         </Field>
         <Field>
-          <FieldLabel>Пароль</FieldLabel>
+          <FieldLabel>{text("Password", "Пароль")}</FieldLabel>
           <FieldContent>
             <Input
               type="password"
@@ -99,19 +107,19 @@ export default function LoginPage() {
           <p className="text-sm text-destructive">{error}</p>
         ) : null}
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Вхід…" : "Увійти"}
+          {submitting ? text("Logging in...", "Вхід…") : text("Log in", "Увійти")}
         </Button>
       </form>
 
       <div className="flex items-center gap-3">
         <div className="h-px flex-1 bg-border" />
-        <span className="text-xs text-muted-foreground">або</span>
+        <span className="text-xs text-muted-foreground">{text("or", "або")}</span>
         <div className="h-px flex-1 bg-border" />
       </div>
 
       <Button variant="outline" onClick={handleDemo} disabled={submitting}>
         <Sparkles />
-        Увійти як демо-користувач
+        {text("Log in as demo user", "Увійти як демо-користувач")}
       </Button>
       <p className="text-center text-xs text-muted-foreground">
         {DEMO_EMAIL} · {DEMO_PASSWORD}
