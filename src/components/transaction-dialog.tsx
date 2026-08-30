@@ -59,6 +59,8 @@ export function TransactionDialog({
     updateTransaction,
     accounts,
     categories,
+    recipients,
+    tags,
     activeBookId,
   } = useData();
   const { text } = useLanguage();
@@ -96,6 +98,10 @@ export function TransactionDialog({
   const [categoryId, setCategoryId] = React.useState(
     transaction?.category_id ?? ""
   );
+  const [recipientId, setRecipientId] = React.useState(
+    transaction?.recipient_id ?? ""
+  );
+  const [tagId, setTagId] = React.useState(transaction?.tag_id ?? "");
 
   const bookAccounts = React.useMemo(
     () => accounts.filter((a) => a.budget_book_id === activeBookId),
@@ -109,6 +115,14 @@ export function TransactionDialog({
         type === "transfer" ? undefined : type
       ),
     [categories, activeBookId, type]
+  );
+  const bookRecipients = React.useMemo(
+    () => recipients.filter((r) => r.budget_book_id === activeBookId),
+    [recipients, activeBookId]
+  );
+  const bookTags = React.useMemo(
+    () => tags.filter((t) => t.budget_book_id === activeBookId),
+    [tags, activeBookId]
   );
   const parentName = React.useCallback(
     (parentId: string | null) =>
@@ -143,6 +157,8 @@ export function TransactionDialog({
     setAccountId("");
     setToAccountId("");
     setCategoryId("");
+    setRecipientId("");
+    setTagId("");
   };
 
   const handleSave = async () => {
@@ -156,6 +172,8 @@ export function TransactionDialog({
           transaction_date: date,
           note: description.trim() || null,
           account_id: accountId,
+          recipient_id: recipientId || null,
+          tag_id: tagId || null,
           ...(type === "transfer"
             ? { transfer_account_id: toAccountId, category_id: null }
             : { category_id: categoryId, transfer_account_id: null }),
@@ -168,6 +186,8 @@ export function TransactionDialog({
           transaction_date: date,
           note: description.trim(),
           account_id: accountId,
+          recipient_id: recipientId || undefined,
+          tag_id: tagId || undefined,
           ...(type === "transfer"
             ? { transfer_account_id: toAccountId }
             : { category_id: categoryId }),
@@ -377,6 +397,115 @@ export function TransactionDialog({
                 </FieldContent>
               </Field>
             )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel>
+                {text("Recipient (optional)", "Отримувач (необовʼязково)")}
+              </FieldLabel>
+              <FieldContent>
+                <Select
+                  value={recipientId}
+                  onValueChange={(v) => setRecipientId(v === "__none__" ? "" : v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue
+                      placeholder={text(
+                        "Select a recipient",
+                        "Оберіть отримувача"
+                      )}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      <span className="text-muted-foreground">
+                        {text("None", "Без отримувача")}
+                      </span>
+                    </SelectItem>
+                    {bookRecipients.length === 0 ? (
+                      <p className="px-2 py-3 text-sm text-muted-foreground">
+                        {text(
+                          "No recipients yet. Add one in Settings.",
+                          "Отримувачів ще немає. Додайте у Налаштуваннях."
+                        )}
+                      </p>
+                    ) : (
+                      bookRecipients.map((r) => {
+                        const cat = r.category;
+                        const account = r.account;
+                        return (
+                          <SelectItem key={r.id} value={r.id}>
+                            <span className="flex items-center gap-2">
+                              {cat ? (
+                                <CategorySwatch
+                                  icon={cat.icon}
+                                  color={cat.color}
+                                  className="size-4 rounded"
+                                />
+                              ) : null}
+                              <span className="truncate">{r.name}</span>
+                              {account ? (
+                                <span className="text-xs text-muted-foreground">
+                                  · {account.name}
+                                </span>
+                              ) : null}
+                            </span>
+                          </SelectItem>
+                        );
+                      })
+                    )}
+                  </SelectContent>
+                </Select>
+              </FieldContent>
+            </Field>
+
+            <Field>
+              <FieldLabel>
+                {text("Tag (optional)", "Тег (необовʼязково)")}
+              </FieldLabel>
+              <FieldContent>
+                <Select
+                  value={tagId}
+                  onValueChange={(v) => setTagId(v === "__none__" ? "" : v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue
+                      placeholder={text("Select a tag", "Оберіть тег")}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      <span className="text-muted-foreground">
+                        {text("None", "Без тегу")}
+                      </span>
+                    </SelectItem>
+                    {bookTags.length === 0 ? (
+                      <p className="px-2 py-3 text-sm text-muted-foreground">
+                        {text(
+                          "No tags yet. Add one in Settings.",
+                          "Тегів ще немає. Додайте у Налаштуваннях."
+                        )}
+                      </p>
+                    ) : (
+                      bookTags.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="size-2.5 shrink-0 rounded-full"
+                              style={{
+                                backgroundColor: t.color ?? "#6b7280",
+                              }}
+                            />
+                            <span className="truncate">{t.name}</span>
+                          </span>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </FieldContent>
+            </Field>
           </div>
         </div>
 

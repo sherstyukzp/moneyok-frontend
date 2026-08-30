@@ -236,6 +236,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         account_id: input.account_id,
         category_id: input.type === "transfer" ? null : (input.category_id ?? null),
         recipient_id: input.recipient_id ?? null,
+        tag_id: input.tag_id ?? null,
         transfer_account_id:
           input.type === "transfer" ? (input.transfer_account_id ?? null) : null,
         type: input.type,
@@ -271,6 +272,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (patch.amount !== undefined) update.amount = patch.amount;
       if (patch.account_id !== undefined) update.account_id = patch.account_id;
       if (patch.recipient_id !== undefined) update.recipient_id = patch.recipient_id;
+      if (patch.tag_id !== undefined) update.tag_id = patch.tag_id;
       if (patch.note !== undefined) {
         update.note = patch.note?.trim() ? patch.note.trim() : null;
       }

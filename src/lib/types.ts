@@ -67,6 +67,7 @@ export type AddTransactionInput = {
   category_id?: string;
   transfer_account_id?: string;
   recipient_id?: string;
+  tag_id?: string;
   note?: string;
   transaction_date: string;
 };
@@ -78,6 +79,7 @@ export type TransactionPatch = {
   category_id?: string | null;
   transfer_account_id?: string | null;
   recipient_id?: string | null;
+  tag_id?: string | null;
   note?: string | null;
   transaction_date?: string;
 };
