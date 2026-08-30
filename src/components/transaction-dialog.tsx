@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,35 +23,108 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 
 import { useData } from "@/lib/store";
 import { toISODate } from "@/lib/format";
-import type { TransactionType } from "@/lib/types";
+import { leafCategories } from "@/lib/categories";
+import { CategorySwatch } from "@/components/category-looks";
+import { useLanguage } from "@/lib/i18n";
+import { toast } from "sonner";
+import type { Transaction, TransactionType } from "@/lib/types";
 
-export function AddTransactionDialog() {
-  const { addTransaction, accounts, categories, activeBookId } = useData();
+export type TransactionDialogMode = "create" | "edit";
 
-  const [open, setOpen] = React.useState(false);
-  const [type, setType] = React.useState<TransactionType>("expense");
-  const [amount, setAmount] = React.useState("");
-  const [date, setDate] = React.useState(() => toISODate(new Date()));
-  const [description, setDescription] = React.useState("");
-  const [accountId, setAccountId] = React.useState("");
-  const [toAccountId, setToAccountId] = React.useState("");
-  const [categoryId, setCategoryId] = React.useState("");
+export function TransactionDialog({
+  mode,
+  transaction,
+  trigger,
+  open,
+  onOpenChange,
+}: {
+  mode: TransactionDialogMode;
+  transaction?: Transaction;
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const {
+    addTransaction,
+    updateTransaction,
+    accounts,
+    categories,
+    activeBookId,
+  } = useData();
+  const { text } = useLanguage();
+  const isControlled = open !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const isOpen = isControlled ? open : internalOpen;
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      if (isControlled) {
+        onOpenChange?.(next);
+      } else {
+        setInternalOpen(next);
+      }
+    },
+    [isControlled, onOpenChange]
+  );
+
+  const isEdit = mode === "edit";
+
+  const [submitting, setSubmitting] = React.useState(false);
+  const [type, setType] = React.useState<TransactionType>(
+    transaction?.type ?? "expense"
+  );
+  const [amount, setAmount] = React.useState(
+    transaction ? String(transaction.amount) : ""
+  );
+  const [date, setDate] = React.useState(
+    transaction?.transaction_date ?? toISODate(new Date())
+  );
+  const [description, setDescription] = React.useState(transaction?.note ?? "");
+  const [accountId, setAccountId] = React.useState(transaction?.account_id ?? "");
+  const [toAccountId, setToAccountId] = React.useState(
+    transaction?.transfer_account_id ?? ""
+  );
+  const [categoryId, setCategoryId] = React.useState(
+    transaction?.category_id ?? ""
+  );
 
   const bookAccounts = React.useMemo(
     () => accounts.filter((a) => a.budget_book_id === activeBookId),
     [accounts, activeBookId]
   );
   const bookCategories = React.useMemo(
-    () => categories.filter((c) => c.budget_book_id === activeBookId && c.kind === type),
+    () =>
+      leafCategories(
+        categories,
+        activeBookId,
+        type === "transfer" ? undefined : type
+      ),
     [categories, activeBookId, type]
   );
+  const parentName = React.useCallback(
+    (parentId: string | null) =>
+      categories.find((c) => c.id === parentId)?.name ?? "",
+    [categories]
+  );
+  const parentGroups = React.useMemo(() => {
+    const groups = new Map<string, typeof bookCategories>();
+    for (const c of bookCategories) {
+      const pid = c.parent_id ?? "";
+      const list = groups.get(pid) ?? [];
+      list.push(c);
+      groups.set(pid, list);
+    }
+    return Array.from(groups.entries());
+  }, [bookCategories]);
 
   const amountValue = Number(amount);
   const amountValid = !Number.isNaN(amountValue) && amountValue > 0;
@@ -61,22 +134,6 @@ export function AddTransactionDialog() {
     date.length > 0 &&
     accountId.length > 0 &&
     (type === "transfer" ? toAccountId.length > 0 : categoryId.length > 0);
-
-  const handleSave = () => {
-    if (!canSave) return;
-    addTransaction({
-      type,
-      amount: Math.round(amountValue * 100) / 100,
-      transaction_date: date,
-      note: description.trim(),
-      account_id: accountId,
-      ...(type === "transfer"
-        ? { transfer_account_id: toAccountId }
-        : { category_id: categoryId }),
-    });
-    setOpen(false);
-    reset();
-  };
 
   const reset = () => {
     setType("expense");
@@ -88,31 +145,83 @@ export function AddTransactionDialog() {
     setCategoryId("");
   };
 
+  const handleSave = async () => {
+    if (!canSave || submitting) return;
+    setSubmitting(true);
+    try {
+      if (isEdit && transaction) {
+        await updateTransaction(transaction.id, {
+          type,
+          amount: Math.round(amountValue * 100) / 100,
+          transaction_date: date,
+          note: description.trim() || null,
+          account_id: accountId,
+          ...(type === "transfer"
+            ? { transfer_account_id: toAccountId, category_id: null }
+            : { category_id: categoryId, transfer_account_id: null }),
+        });
+        toast.success(text("Transaction updated", "Транзакцію оновлено"));
+      } else {
+        await addTransaction({
+          type,
+          amount: Math.round(amountValue * 100) / 100,
+          transaction_date: date,
+          note: description.trim(),
+          account_id: accountId,
+          ...(type === "transfer"
+            ? { transfer_account_id: toAccountId }
+            : { category_id: categoryId }),
+        });
+        toast.success(text("Transaction added", "Транзакцію додано"));
+      }
+      setOpen(false);
+      if (!isEdit) reset();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : text("Save error", "Помилка збереження"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const defaultTrigger = (
+    <Button>
+      <Plus />
+      {text("Add transaction", "Додати транзакцію")}
+    </Button>
+  );
+
   return (
     <Dialog
-      open={open}
+      open={isOpen}
       onOpenChange={(next) => {
+        if (submitting) return;
         setOpen(next);
-        if (!next) reset();
+        if (!next && !isEdit) reset();
       }}
     >
-      <DialogTrigger asChild>
-        <Button>
-          <Plus />
-          Додати транзакцію
-        </Button>
-      </DialogTrigger>
+      {trigger || !isControlled ? (
+        <DialogTrigger asChild>{trigger ?? defaultTrigger}</DialogTrigger>
+      ) : null}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Нова транзакція</DialogTitle>
+          <DialogTitle>
+            {isEdit
+              ? text("Edit transaction", "Редагувати транзакцію")
+              : text("New transaction", "Нова транзакція")}
+          </DialogTitle>
           <DialogDescription>
-            Додається в активну книгу бюджетування.
+            {isEdit
+              ? text("Update the transaction details.", "Оновіть дані транзакції.")
+              : text(
+                  "The transaction will be added to the active budget book.",
+                  "Додається в активну книгу бюджетування."
+                )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
           <Field>
-            <FieldLabel>Тип</FieldLabel>
+            <FieldLabel>{text("Type", "Тип")}</FieldLabel>
             <FieldContent>
               <Select
                 value={type}
@@ -122,9 +231,9 @@ export function AddTransactionDialog() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="expense">Витрата</SelectItem>
-                  <SelectItem value="income">Дохід</SelectItem>
-                  <SelectItem value="transfer">Переказ</SelectItem>
+                  <SelectItem value="expense">{text("Expense", "Витрата")}</SelectItem>
+                  <SelectItem value="income">{text("Income", "Дохід")}</SelectItem>
+                  <SelectItem value="transfer">{text("Transfer", "Переказ")}</SelectItem>
                 </SelectContent>
               </Select>
             </FieldContent>
@@ -132,7 +241,7 @@ export function AddTransactionDialog() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel>Сума</FieldLabel>
+              <FieldLabel>{text("Amount", "Сума")}</FieldLabel>
               <FieldContent>
                 <Input
                   type="number"
@@ -142,12 +251,14 @@ export function AddTransactionDialog() {
                   onChange={(e) => setAmount(e.target.value)}
                 />
                 {!amountValid && amount.length > 0 ? (
-                  <FieldError>Введіть суму більше нуля</FieldError>
+                  <FieldError>
+                    {text("Enter an amount greater than zero", "Введіть суму більше нуля")}
+                  </FieldError>
                 ) : null}
               </FieldContent>
             </Field>
             <Field>
-              <FieldLabel>Дата</FieldLabel>
+              <FieldLabel>{text("Date", "Дата")}</FieldLabel>
               <FieldContent>
                 <Input
                   type="date"
@@ -159,23 +270,30 @@ export function AddTransactionDialog() {
           </div>
 
           <Field>
-            <FieldLabel>Опис</FieldLabel>
+            <FieldLabel>{text("Description", "Опис")}</FieldLabel>
             <FieldContent>
               <Input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Додайте опис (необов’язково)"
+                placeholder={text(
+                  "Add a description (optional)",
+                  "Додайте опис (необов’язково)"
+                )}
               />
             </FieldContent>
           </Field>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel>{type === "transfer" ? "З рахунку" : "Рахунок"}</FieldLabel>
+              <FieldLabel>
+                {type === "transfer"
+                  ? text("From account", "З рахунку")
+                  : text("Account", "Рахунок")}
+              </FieldLabel>
               <FieldContent>
                 <Select value={accountId} onValueChange={(v) => setAccountId(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Оберіть рахунок" />
+                    <SelectValue placeholder={text("Select an account", "Оберіть рахунок")} />
                   </SelectTrigger>
                   <SelectContent>
                     {bookAccounts.map((a) => (
@@ -190,11 +308,11 @@ export function AddTransactionDialog() {
 
             {type === "transfer" ? (
               <Field>
-                <FieldLabel>На рахунок</FieldLabel>
+                <FieldLabel>{text("To account", "На рахунок")}</FieldLabel>
                 <FieldContent>
                   <Select value={toAccountId} onValueChange={(v) => setToAccountId(v)}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Оберіть рахунок" />
+                      <SelectValue placeholder={text("Select an account", "Оберіть рахунок")} />
                     </SelectTrigger>
                     <SelectContent>
                       {targetAccounts.map((a) => (
@@ -205,28 +323,56 @@ export function AddTransactionDialog() {
                     </SelectContent>
                   </Select>
                   {toAccountId === accountId && toAccountId.length > 0 ? (
-                    <FieldError>Рахунки мають відрізнятися</FieldError>
+                    <FieldError>
+                      {text("Accounts must be different", "Рахунки мають відрізнятися")}
+                    </FieldError>
                   ) : null}
                 </FieldContent>
               </Field>
             ) : (
               <Field>
-                <FieldLabel>Категорія</FieldLabel>
+                <FieldLabel>{text("Category", "Категорія")}</FieldLabel>
                 <FieldContent>
                   <Select value={categoryId} onValueChange={(v) => setCategoryId(v)}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Оберіть категорію" />
+                      <SelectValue placeholder={text("Select a category", "Оберіть категорію")} />
                     </SelectTrigger>
                     <SelectContent>
-                      {bookCategories.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
+                      {bookCategories.length === 0 ? (
+                        <p className="px-2 py-3 text-sm text-muted-foreground">
+                          {text(
+                            "There are no subcategories for this type.",
+                            "Немає підкатегорій для цього типу."
+                          )}
+                        </p>
+                      ) : (
+                        parentGroups.map(([parentId, items], index) => (
+                          <React.Fragment key={parentId}>
+                            {index > 0 ? <SelectSeparator /> : null}
+                            <SelectGroup>
+                              <SelectLabel>
+                                {parentName(parentId) || text("No group", "Без групи")}
+                              </SelectLabel>
+                              {items.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  <span className="flex items-center gap-2">
+                                    <CategorySwatch
+                                      icon={c.icon}
+                                      color={c.color}
+                                      className="size-5 rounded"
+                                    />
+                                    {c.name}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </React.Fragment>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   {categoryId.length === 0 && amountValid ? (
-                    <FieldError>Оберіть категорію</FieldError>
+                    <FieldError>{text("Select a category", "Оберіть категорію")}</FieldError>
                   ) : null}
                 </FieldContent>
               </Field>
@@ -235,14 +381,23 @@ export function AddTransactionDialog() {
         </div>
 
         <DialogFooter className="mt-2">
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Скасувати
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            {isEdit ? text("Close", "Закрити") : text("Cancel", "Скасувати")}
           </Button>
-          <Button onClick={handleSave} disabled={!canSave}>
-            Зберегти
+          <Button onClick={handleSave} disabled={!canSave || submitting}>
+            {submitting
+              ? text("Saving...", "Збереження…")
+              : isEdit
+                ? text("Save", "Зберегти")
+                : text("Save", "Зберегти")}
+            {submitting ? null : isEdit ? <Pencil className="ml-1" /> : null}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+export function AddTransactionDialog() {
+  return <TransactionDialog mode="create" />;
 }

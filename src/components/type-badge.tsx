@@ -1,11 +1,14 @@
+"use client";
+
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "@/lib/i18n";
 import type { TransactionType } from "@/lib/types";
 
-const TYPE_LABELS: Record<TransactionType, string> = {
-  income: "Дохід",
-  expense: "Витрата",
-  transfer: "Переказ",
+const TYPE_LABELS: Record<TransactionType, [string, string]> = {
+  income: ["Income", "Дохід"],
+  expense: ["Expense", "Витрата"],
+  transfer: ["Transfer", "Переказ"],
 };
 
 const TYPE_STYLES: Record<TransactionType, string> = {
@@ -24,9 +27,11 @@ export function TypeBadge({
   type: TransactionType;
   className?: string;
 }) {
+  const { text } = useLanguage();
+
   return (
     <Badge variant="outline" className={cn(TYPE_STYLES[type], className)}>
-      {TYPE_LABELS[type]}
+      {text(...TYPE_LABELS[type])}
     </Badge>
   );
 }
@@ -40,10 +45,13 @@ export function AmountText({
   amount: number;
   className?: string;
 }) {
+  const { language } = useLanguage();
+  const locale = language === "uk" ? "uk-UA" : "en-US";
+
   if (type === "transfer") {
     return (
       <span className={cn("font-medium tabular-nums", className)}>
-        ⇄ {amount.toLocaleString("uk-UA")}
+        ⇄ {amount.toLocaleString(locale)}
       </span>
     );
   }
@@ -59,7 +67,7 @@ export function AmountText({
       )}
     >
       {isIncome ? "+" : "−"}
-      {amount.toLocaleString("uk-UA")}
+      {amount.toLocaleString(locale)}
     </span>
   );
 }

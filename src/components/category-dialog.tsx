@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,83 +26,212 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { IconColorPicker } from "@/components/category-looks";
 import { useData } from "@/lib/store";
+import { useLanguage } from "@/lib/i18n";
+import { toast } from "sonner";
+import type { Category } from "@/lib/types";
 
-export function AddCategoryDialog({ triggerInline = false }: { triggerInline?: boolean }) {
-  const { addCategory } = useData();
-  const [open, setOpen] = React.useState(false);
-  const [name, setName] = React.useState("");
-  const [kind, setKind] = React.useState<"expense" | "income">("expense");
+export type CategoryDialogMode = "create-parent" | "create-child" | "edit";
 
-  const canSave = name.trim().length > 0;
+export function CategoryDialog({
+  mode,
+  category,
+  parentId,
+  trigger,
+  open,
+  onOpenChange,
+}: {
+  mode: CategoryDialogMode;
+  category?: Category;
+  parentId?: string;
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const { addCategory, updateCategory, categories, activeBookId } = useData();
+  const { text } = useLanguage();
+  const [internalOpen, setInternalOpen] = React.useState(false);
 
-  const handleSave = () => {
-    if (!canSave) return;
-    addCategory({ name: name.trim(), kind });
-    setName("");
-    setKind("expense");
-    setOpen(false);
-  };
+  const isControlled = open !== undefined;
+  const isOpen = isControlled ? open : internalOpen;
+  const setOpen = (next: boolean) =>
+    isControlled ? onOpenChange?.(next) : setInternalOpen(next);
 
-  const trigger = triggerInline ? (
-    <DialogTrigger asChild>
-      <button className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-xs text-muted-foreground transition-colors outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring">
-        <Plus className="size-3.5" />
-        <span>Додати категорію</span>
-      </button>
-    </DialogTrigger>
-  ) : (
-    <DialogTrigger asChild>
-      <Button variant="outline" size="sm">
-        <Plus />
-        Додати категорію
-      </Button>
-    </DialogTrigger>
+  const isEdit = mode === "edit";
+  const isChild = isEdit ? !!category?.parent_id : mode === "create-child";
+
+  const [name, setName] = React.useState(category?.name ?? "");
+  const [parent, setParent] = React.useState(
+    isEdit ? (category?.parent_id ?? "") : (parentId ?? "")
+  );
+  const [icon, setIcon] = React.useState(category?.icon ?? "cart");
+  const [color, setColor] = React.useState(category?.color ?? "#f59e0b");
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const parentCategories = React.useMemo(
+    () =>
+      categories.filter(
+        (c) => c.budget_book_id === activeBookId && c.parent_id == null
+      ),
+    [categories, activeBookId]
   );
 
+  const canSave =
+    name.trim().length > 0 && (isChild ? parent.length > 0 : true) && !submitting;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSubmitting(true);
+    try {
+      if (isEdit) {
+        await updateCategory(
+          category!.id,
+          isChild
+            ? { name: name.trim(), icon, color }
+            : { name: name.trim() }
+        );
+        toast.success(
+          isChild
+            ? text("Subcategory updated", "Підкатегорію оновлено")
+            : text("Folder updated", "Папку оновлено")
+        );
+      } else if (isChild) {
+        await addCategory({
+          name: name.trim(),
+          parent_id: parent,
+          icon,
+          color,
+        });
+        toast.success(text("Subcategory added", "Підкатегорію додано"));
+      } else {
+        await addCategory({ name: name.trim() });
+        toast.success(text("Folder added", "Папку додано"));
+      }
+      setName("");
+      setParent(parentId ?? "");
+      setIcon("cart");
+      setColor("#f59e0b");
+      setOpen(false);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : text("Save error", "Помилка збереження")
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const title = isEdit
+    ? isChild
+      ? text("Edit subcategory", "Редагувати підкатегорію")
+      : text("Edit folder", "Редагувати папку")
+    : isChild
+      ? text("New subcategory", "Нова підкатегорія")
+      : text("New folder", "Нова папка");
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {trigger}
+    <Dialog open={isOpen} onOpenChange={setOpen}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Нова категорія</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Категорія буде додана в активну книгу бюджетування.
+            {isChild
+              ? text(
+                  "A subcategory belongs to a folder.",
+                  "Підкатегорія привʼязується до папки."
+                )
+              : text(
+                  "A folder groups subcategories.",
+                  "Папка групує підкатегорії."
+                )}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
+          {isChild && !isEdit ? (
+            <Field>
+              <FieldLabel>{text("Parent folder", "Батьківська папка")}</FieldLabel>
+              <FieldContent>
+                <Select value={parent} onValueChange={setParent}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={text("Select a folder", "Оберіть папку")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {parentCategories.length === 0 ? (
+                      <p className="px-2 py-3 text-sm text-muted-foreground">
+                        {text(
+                          "Create a folder first.",
+                          "Спочатку створіть папку."
+                        )}
+                      </p>
+                    ) : (
+                      parentCategories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </FieldContent>
+            </Field>
+          ) : null}
+
+          {isEdit && isChild ? (
+            <p className="text-sm text-muted-foreground">
+              {text("Folder:", "Папка:")}{" "}
+              <span className="font-medium text-foreground">
+                {parentCategories.find((c) => c.id === category?.parent_id)?.name ?? "—"}
+              </span>
+            </p>
+          ) : null}
+
           <Field>
-            <FieldLabel>Назва</FieldLabel>
+            <FieldLabel>{text("Name", "Назва")}</FieldLabel>
             <FieldContent>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Наприклад, Кавʼярні"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSave();
+                }}
+                placeholder={
+                  isChild
+                    ? text("For example, Groceries", "Наприклад, Продукти")
+                    : text("For example, Food and drinks", "Наприклад, Їжа та напої")
+                }
                 autoFocus
               />
             </FieldContent>
           </Field>
-          <Field>
-            <FieldLabel>Тип</FieldLabel>
-            <FieldContent>
-              <Select value={kind} onValueChange={(v) => setKind(v as "expense" | "income")}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="expense">Витрата</SelectItem>
-                  <SelectItem value="income">Дохід</SelectItem>
-                </SelectContent>
-              </Select>
-            </FieldContent>
-          </Field>
+
+          {isChild ? (
+            <Field>
+              <FieldLabel>{text("Icon and color", "Іконка та колір")}</FieldLabel>
+              <FieldContent>
+                <IconColorPicker
+                  icon={icon}
+                  color={color}
+                  onChange={(i, c) => {
+                    setIcon(i);
+                    setColor(c);
+                  }}
+                />
+              </FieldContent>
+            </Field>
+          ) : null}
         </div>
         <DialogFooter className="mt-2">
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Скасувати
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            {text("Cancel", "Скасувати")}
           </Button>
           <Button onClick={handleSave} disabled={!canSave}>
-            Додати категорію
+            {submitting
+              ? text("Saving...", "Збереження…")
+              : isEdit
+                ? text("Save", "Зберегти")
+                : text("Add", "Додати")}
           </Button>
         </DialogFooter>
       </DialogContent>
