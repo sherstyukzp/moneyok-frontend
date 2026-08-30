@@ -1,5 +1,10 @@
-export function formatMoney(amount: number, currency: string): string {
-  return new Intl.NumberFormat("uk-UA", {
+function getLocale(): string {
+  if (typeof window === "undefined") return "en";
+  return window.localStorage.getItem("moneyok:language") === "uk" ? "uk-UA" : "en-US";
+}
+
+export function formatMoney(amount: number, currency: string, locale?: string): string {
+  return new Intl.NumberFormat(locale ?? getLocale(), {
     style: "currency",
     currency,
     maximumFractionDigits: 2,
@@ -11,39 +16,37 @@ export function formatMoneySigned(amount: number, currency: string): string {
   return amount < 0 ? `−${formatted}` : `+${formatted}`;
 }
 
+const MONTHS_EN = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+const MONTHS_EN_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 const MONTHS_UK = [
-  "січ",
-  "лют",
-  "бер",
-  "кві",
-  "тра",
-  "чер",
-  "лип",
-  "сер",
-  "вер",
-  "жов",
-  "лис",
-  "гру",
+  "січ", "лют", "бер", "кві", "тра", "чер",
+  "лип", "сер", "вер", "жов", "лис", "гру",
 ];
 
 const MONTHS_UK_LONG = [
-  "січень",
-  "лютий",
-  "березень",
-  "квітень",
-  "травень",
-  "червень",
-  "липень",
-  "серпень",
-  "вересень",
-  "жовтень",
-  "листопад",
-  "грудень",
+  "січень", "лютий", "березень", "квітень", "травень", "червень",
+  "липень", "серпень", "вересень", "жовтень", "листопад", "грудень",
 ];
+
+function shortMonths(): string[] {
+  return getLocale() === "uk-UA" ? MONTHS_UK : MONTHS_EN;
+}
+
+function longMonths(): string[] {
+  return getLocale() === "uk-UA" ? MONTHS_UK_LONG : MONTHS_EN_LONG;
+}
 
 export function formatDateLong(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
-  return `${d.getDate()} ${MONTHS_UK_LONG[d.getMonth()]} ${d.getFullYear()}`;
+  return d.toLocaleDateString(getLocale(), { year: "numeric", month: "long", day: "numeric" });
 }
 
 export function formatDateShort(iso: string): string {
@@ -52,11 +55,11 @@ export function formatDateShort(iso: string): string {
 }
 
 export function monthLabel(date: Date): string {
-  return MONTHS_UK[date.getMonth()];
+  return shortMonths()[date.getMonth()];
 }
 
 export function monthLabelLong(date: Date): string {
-  return `${MONTHS_UK_LONG[date.getMonth()]} ${date.getFullYear()}`;
+  return `${longMonths()[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 export function toISODate(date: Date): string {
