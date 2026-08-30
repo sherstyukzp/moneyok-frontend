@@ -11,25 +11,7 @@ import {
   FieldError,
   FieldLabel,
 } from "@/components/ui/field";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchSelect } from "@/components/search-select";
 
 import { useData } from "@/lib/store";
 import { toISODate } from "@/lib/format";
@@ -405,58 +387,62 @@ export function TransactionDialog({
                 {text("Recipient (optional)", "Отримувач (необовʼязково)")}
               </FieldLabel>
               <FieldContent>
-                <Select
+                <SearchSelect
                   value={recipientId}
                   onValueChange={(v) => setRecipientId(v === "__none__" ? "" : v)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue
-                      placeholder={text(
-                        "Select a recipient",
-                        "Оберіть отримувача"
-                      )}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">
-                      <span className="text-muted-foreground">
-                        {text("None", "Без отримувача")}
-                      </span>
-                    </SelectItem>
-                    {bookRecipients.length === 0 ? (
-                      <p className="px-2 py-3 text-sm text-muted-foreground">
-                        {text(
-                          "No recipients yet. Add one in Settings.",
-                          "Отримувачів ще немає. Додайте у Налаштуваннях."
-                        )}
-                      </p>
-                    ) : (
-                      bookRecipients.map((r) => {
-                        const cat = r.category;
-                        const account = r.account;
-                        return (
-                          <SelectItem key={r.id} value={r.id}>
-                            <span className="flex items-center gap-2">
-                              {cat ? (
-                                <CategorySwatch
-                                  icon={cat.icon}
-                                  color={cat.color}
-                                  className="size-4 rounded"
-                                />
-                              ) : null}
-                              <span className="truncate">{r.name}</span>
-                              {account ? (
-                                <span className="text-xs text-muted-foreground">
-                                  · {account.name}
-                                </span>
-                              ) : null}
-                            </span>
-                          </SelectItem>
-                        );
-                      })
-                    )}
-                  </SelectContent>
-                </Select>
+                  options={[
+                    {
+                      value: "__none__",
+                      label: (
+                        <span className="text-muted-foreground">
+                          {text("None", "Без отримувача")}
+                        </span>
+                      ),
+                      searchText: text(
+                        "none no recipient without",
+                        "без отримувача немає пусто"
+                      ),
+                    },
+                    ...bookRecipients.map((r) => {
+                      const cat = r.category;
+                      const account = r.account;
+                      const meta = [cat?.name, account?.name].filter(Boolean).join(" ");
+                      return {
+                        value: r.id,
+                        label: (
+                          <span className="flex items-center gap-2">
+                            {cat ? (
+                              <CategorySwatch
+                                icon={cat.icon}
+                                color={cat.color}
+                                className="size-4 rounded"
+                              />
+                            ) : null}
+                            <span className="truncate">{r.name}</span>
+                            {account ? (
+                              <span className="text-xs text-muted-foreground">
+                                · {account.name}
+                              </span>
+                            ) : null}
+                          </span>
+                        ),
+                        searchText: `${r.name} ${meta} ${r.notes ?? ""}`.toLowerCase(),
+                      };
+                    }),
+                  ]}
+                  placeholder={text(
+                    "Select a recipient",
+                    "Оберіть отримувача"
+                  )}
+                  searchPlaceholder={text(
+                    "Search recipients…",
+                    "Пошук отримувачів…"
+                  )}
+                  emptyText={text(
+                    "No recipients yet. Add one in Settings.",
+                    "Отримувачів ще немає. Додайте у Налаштуваннях."
+                  )}
+                />
               </FieldContent>
             </Field>
 
@@ -465,45 +451,43 @@ export function TransactionDialog({
                 {text("Tag (optional)", "Тег (необовʼязково)")}
               </FieldLabel>
               <FieldContent>
-                <Select
+                <SearchSelect
                   value={tagId}
                   onValueChange={(v) => setTagId(v === "__none__" ? "" : v)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue
-                      placeholder={text("Select a tag", "Оберіть тег")}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">
-                      <span className="text-muted-foreground">
-                        {text("None", "Без тегу")}
-                      </span>
-                    </SelectItem>
-                    {bookTags.length === 0 ? (
-                      <p className="px-2 py-3 text-sm text-muted-foreground">
-                        {text(
-                          "No tags yet. Add one in Settings.",
-                          "Тегів ще немає. Додайте у Налаштуваннях."
-                        )}
-                      </p>
-                    ) : (
-                      bookTags.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          <span className="flex items-center gap-2">
-                            <span
-                              className="size-2.5 shrink-0 rounded-full"
-                              style={{
-                                backgroundColor: t.color ?? "#6b7280",
-                              }}
-                            />
-                            <span className="truncate">{t.name}</span>
-                          </span>
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                  options={[
+                    {
+                      value: "__none__",
+                      label: (
+                        <span className="text-muted-foreground">
+                          {text("None", "Без тегу")}
+                        </span>
+                      ),
+                      searchText: text(
+                        "none no tag without",
+                        "без тегу немає пусто"
+                      ),
+                    },
+                    ...bookTags.map((t) => ({
+                      value: t.id,
+                      label: (
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="size-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: t.color ?? "#6b7280" }}
+                          />
+                          <span className="truncate">{t.name}</span>
+                        </span>
+                      ),
+                      searchText: t.name.toLowerCase(),
+                    })),
+                  ]}
+                  placeholder={text("Select a tag", "Оберіть тег")}
+                  searchPlaceholder={text("Search tags…", "Пошук тегів…")}
+                  emptyText={text(
+                    "No tags yet. Add one in Settings.",
+                    "Тегів ще немає. Додайте у Налаштуваннях."
+                  )}
+                />
               </FieldContent>
             </Field>
           </div>
