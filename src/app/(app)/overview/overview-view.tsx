@@ -345,20 +345,22 @@ export function OverviewView() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{text("Current balance", "Поточний баланс")}</CardTitle>
-            <CardDescription>
-              {text("in", "у книзі")} {text(`"${activeBook?.name ?? "..."}"`, `«${activeBook?.name ?? "…"}»`)}
-            </CardDescription>
-            <CardAction>
-              <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <Wallet />
-              </div>
-            </CardAction>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              {text("Current balance", "Поточний баланс")}
+            </CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-semibold tracking-tight tabular-nums">
+            <div className="text-2xl font-bold tabular-nums">
               {money(currentBalance)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {text("in", "у книзі")}{" "}
+              {text(
+                `"${activeBook?.name ?? "…"}"`,
+                `«${activeBook?.name ?? "…"}»`
+              )}
             </p>
           </CardContent>
         </Card>
@@ -528,22 +530,24 @@ export function OverviewView() {
             </CardDescription>
           </div>
           <div className="flex">
-            {(["expense", "income"] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                data-active={activeFlowChart === key}
-                className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-t-0 sm:border-l sm:px-8 sm:py-6"
-                onClick={() => setActiveFlowChart(key)}
-              >
-                <span className="text-xs text-muted-foreground">
-                  {flowChartConfig[key].label}
-                </span>
-                <span className="text-lg leading-none font-bold sm:text-3xl">
-                  {money(flowChartTotals[key])}
-                </span>
-              </button>
-            ))}
+            {(["expense", "income"] as const).map((key) => {
+              const chart = key;
+              return (
+                <button
+                  key={chart}
+                  data-active={activeFlowChart === chart}
+                  className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-t-0 sm:border-l sm:px-8 sm:py-6"
+                  onClick={() => setActiveFlowChart(chart)}
+                >
+                  <span className="text-xs text-muted-foreground">
+                    {flowChartConfig[chart].label}
+                  </span>
+                  <span className="text-lg leading-none font-bold sm:text-3xl">
+                    {money(flowChartTotals[chart])}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </CardHeader>
         <CardContent className="px-2 sm:p-6">
@@ -626,7 +630,7 @@ export function OverviewView() {
                   tickLine={false}
                   tickMargin={10}
                   axisLine={false}
-                  tickFormatter={(value) => String(value).slice(0, 3)}
+                  tickFormatter={(value) => value.slice(0, 3)}
                   hide
                 />
                 <XAxis dataKey="used" type="number" domain={[0, 100]} hide />
